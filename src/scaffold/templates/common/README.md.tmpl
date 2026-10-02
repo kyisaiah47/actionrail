@@ -1,0 +1,39 @@
+# {{APP_NAME}}
+
+This app was scaffolded by `actionrail new-app --app {{VIEW}}`. It runs an ActionRail agent: one pass per connected account, caps, an approval step, an undo window, and a receipt written before any send.
+
+## Run it
+
+```
+npm install
+npm run dev
+```
+
+Open the app. In development it uses a mailbox that lives in memory. Use the development tools on the page to deliver a sample message, run a pass and run the dispatcher. Each draft waits for your approval. After you approve it, it waits two minutes before the dispatcher can send it, and Undo works during that time.
+
+## Bring your own model
+
+Classify and draft run as rules and a template until you set a provider in `.env.local`:
+
+```
+ACTIONRAIL_PROVIDER=gemini
+ACTIONRAIL_MODEL=gemini-2.5-flash
+ACTIONRAIL_API_KEY=your key
+```
+
+`ACTIONRAIL_PROVIDER` takes `openai`, `anthropic`, `gemini` or `openai-compatible`. For a local model, use `openai-compatible` and set `ACTIONRAIL_BASE_URL`, for example `http://localhost:11434/v1`.
+
+## Before production
+
+`lib/manifest.ts` marks four places with WIRE: the mailbox, the account list, the plan check and the demo account. `lib/tenant.ts` needs your sign-in. Until you wire them, production refuses every account and every queue request.
+
+`lib/agent.ts` uses an in-memory store. Switch it to the SQL store for production.
+
+## Scheduling
+
+The pass and the dispatcher are POST routes:
+
+- `/api/cron/pass`
+- `/api/cron/dispatch`
+
+Your scheduler calls them with `Authorization: Bearer $CRON_SECRET`. Both refuse every caller while `CRON_SECRET` is unset. Nothing in this app schedules them for you.

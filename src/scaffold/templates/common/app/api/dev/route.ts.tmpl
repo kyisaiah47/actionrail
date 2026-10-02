@@ -1,0 +1,29 @@
+// Development only: put a sample message in the in-memory mailbox, run a pass, run the dispatcher.
+// In production this route does not exist.
+import { manifest, runner } from "@/lib/agent";
+import { devMailbox } from "@/lib/manifest";
+import { currentTenant } from "@/lib/tenant";
+
+export const dynamic = "force-dynamic";
+
+const SAMPLES = [
+  { fromEmail: "dana@customer.example", fromName: "Dana Reyes", subject: "Exporting a report as CSV", bodyText: "Hi, how do I export last month's report as a CSV file? I can only find the PDF button." },
+  { fromEmail: "ola@customer.example", fromName: "Ola Berg", subject: "Second charge on my invoice", bodyText: "I see two charges on this month's invoice. Can you check which one is correct?" },
+  { fromEmail: "sam@customer.example", fromName: "Sam Ito", subject: "Please cancel", bodyText: "Please cancel our account at the end of this month." },
+  { fromEmail: "no-reply@vendor.example", fromName: "Vendor", subject: "Out of office", bodyText: "I am out of office until Monday." },
+];
+
+export async function POST(req: Request) {
+  if (process.env.NODE_ENV === "production") return new Response(null, { status: 404 });
+  const tenantId = await currentTenant(req);
+  const { action } = (await req.json().catch(() => ({}))) as { action?: string };
+  if (action === "deliver") {
+    const box = devMailbox(tenantId);
+    const sample = SAMPLES[Math.floor(Math.random() * SAMPLES.length)];
+    const id = box.deliver({ ...sample, receivedAt: new Date().toISOString() });
+    return Response.json({ ok: true, delivered: id });
+  }
+  if (action === "pass") return Response.json({ ok: true, pass: await runner.runPass(manifest, tenantId) });
+  if (action === "dispatch") return Response.json({ ok: true, dispatch: await runner.runDispatch(manifest) });
+  return Response.json({ error: "action must be deliver, pass or dispatch" }, { status: 400 });
+}

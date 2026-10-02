@@ -1,0 +1,12 @@
+// The dispatcher. Your scheduler calls this with `Authorization: Bearer $CRON_SECRET`.
+// It sends only rows a person approved, or autopilot queued, whose undo window has closed.
+import { cronRoute } from "actionrail";
+import { manifest, runner } from "@/lib/agent";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
+  return cronRoute(req, () => runner.runDispatch(manifest));
+}
+
+export const GET = POST;

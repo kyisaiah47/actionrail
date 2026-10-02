@@ -1,0 +1,174 @@
+// THE MANIFEST. The runner reads nothing about this app except this file.
+//
+// This starter answers a shared inbox. In development it reads a mailbox that lives in memory, so
+// the whole loop runs on your machine: deliver a sample message, run a pass, approve the draft,
+// wait out the undo window, dispatch. Classify and draft are rules and a template until you set
+// ACTIONRAIL_PROVIDER, and then they run on your model.
+//
+// Before production, replace the four places marked WIRE: the mailbox, the tenant list, the plan
+// check and the demo account. Each one fails closed until you do: in production the plan check
+// refuses every account, so nothing runs and nothing sends.
+
+import {
+  FakeMailbox,
+  allow,
+  decideByLabel,
+  defineManifest,
+  firstMatch,
+  mailboxReplyAction,
+  mailboxSource,
+  stop,
+  type InboundMessage,
+  type MailRail,
+  type ModelStep,
+  type ReplyArtifact,
+  type RuleLabel,
+  type TemplateStep,
+} from "actionrail";
+
+const dev = process.env.NODE_ENV !== "production";
+
+/* WIRE 1: the mailbox. In production, open the tenant's real mailbox, for example:
+ *   import { graphMailbox } from "actionrail";
+ *   const open = (tenantId) => graphMailbox(tenantId, { tokens: yourTokenStore, apps: { yourapp: { clientId, clientSecret } } });
+ */
+const g = globalThis as unknown as { __devMailboxes?: Map<string, FakeMailbox> };
+const devMailboxes = (g.__devMailboxes ??= new Map<string, FakeMailbox>());
+export function devMailbox(tenantId: string): FakeMailbox {
+  let box = devMailboxes.get(tenantId);
+  if (!box) {
+    box = new FakeMailbox("support@example.com", "Example support inbox");
+    devMailboxes.set(tenantId, box);
+  }
+  return box;
+}
+async function openMailbox(tenantId: string): Promise<MailRail | null> {
+  return dev ? devMailbox(tenantId) : null;
+}
+
+/** The labels this app reads mail as. */
+type Label = "question" | "billing" | "complaint" | "legal" | "cancellation" | "automated" | "spam";
+
+const ruleClassify = firstMatch<InboundMessage>(
+  [
+    { label: "automated", when: (m) => /no-?reply|mailer-daemon|out of office/i.test(`${m.fromEmail} ${m.subject}`), because: "an automated sender or an out-of-office" },
+    { label: "legal", when: (m) => /\b(lawyer|attorney|subpoena|gdpr|lawsuit)\b/i.test(m.bodyText ?? ""), because: "mentions a legal matter" },
+    { label: "cancellation", when: (m) => /\bcancel\b/i.test(`${m.subject} ${m.bodyText}`), because: "asks to cancel" },
+    { label: "complaint", when: (m) => /\b(unacceptable|furious|worst|terrible)\b/i.test(m.bodyText ?? ""), because: "reads as a complaint" },
+    { label: "billing", when: (m) => /\b(invoice|charge|refund|receipt|billing)\b/i.test(`${m.subject} ${m.bodyText}`), because: "about billing" },
+  ],
+  "question",
+);
+
+const modelClassify: ModelStep<InboundMessage, RuleLabel> = {
+  capability: "classify",
+  build: (m) => ({
+    system:
+      "You label one message that arrived on a team's shared inbox. Pick exactly one label: question, billing, complaint, legal, cancellation, automated, spam. Return JSON only: {\"label\": string, \"because\": string, \"confidence\": number between 0 and 1}.",
+    prompt: `Subject: ${m.subject ?? "(none)"}\nFrom: ${m.fromEmail ?? "(unknown)"}\n\n${(m.bodyText ?? "").slice(0, 4000)}`,
+    maxTokens: 300,
+  }),
+  parse: (j) =>
+    typeof j.label === "string" && ["question", "billing", "complaint", "legal", "cancellation", "automated", "spam"].includes(j.label)
+      ? { label: j.label, because: String(j.because ?? ""), confidence: Math.max(0, Math.min(1, Number(j.confidence ?? 0.5))) }
+      : null,
+};
+
+const replySubject = (s: string | null) => (s && /^re:/i.test(s) ? s : `Re: ${s ?? "your message"}`);
+
+const templateDraft: TemplateStep<{ item: InboundMessage; c: RuleLabel | null }, ReplyArtifact> = {
+  kind: "template",
+  render: ({ item }) => ({
+    kind: "reply",
+    replyTo: item.id,
+    subject: replySubject(item.subject),
+    body: `Hi${item.fromName ? ` ${item.fromName.split(" ")[0]}` : ""},\n\nThanks for writing in. We have your message and a person on the team will answer it today.\n\nThe {{APP_NAME}} team`,
+  }),
+};
+
+const modelDraft: ModelStep<{ item: InboundMessage; c: RuleLabel | null }, ReplyArtifact> = {
+  capability: "reply",
+  build: ({ item }) => ({
+    system:
+      "You draft a short, plain reply a small team will send from its shared inbox. Answer only what was asked. Never promise a refund, a credit, a discount or a date. No placeholders in brackets. Return JSON only: {\"subject\": string, \"body\": string}.",
+    prompt: `Subject: ${item.subject ?? "(none)"}\n\n${(item.bodyText ?? "").slice(0, 4000)}`,
+    maxTokens: 700,
+  }),
+  parse: (j, { item }) =>
+    typeof j.body === "string" && j.body.trim().length >= 20 && !/\[[^\]\n]{1,40}\]/.test(j.body)
+      ? { kind: "reply", replyTo: item.id, subject: typeof j.subject === "string" && j.subject.trim() ? j.subject.trim() : replySubject(item.subject), body: j.body.trim() }
+      : null,
+  fallback: (input) => templateDraft.render(input) as ReplyArtifact,
+};
+
+const useModel = Boolean(process.env.ACTIONRAIL_PROVIDER);
+
+type State = "open" | "drafted" | "queued" | "answered" | "handoff" | "closed";
+
+export const manifest = defineManifest<InboundMessage, ReplyArtifact, State, RuleLabel>({
+  app: "{{APP_SLUG}}",
+  billing: {
+    gate: "subscription",
+    // WIRE 2: your plan check. Until then production refuses every account.
+    isEntitled: async () => {
+      if (dev) return true;
+      throw new Error("Wire your plan check in lib/manifest.ts before production.");
+    },
+    demoEmail: "demo@example.com",
+  },
+  tenants: {
+    // WIRE 3: every account the pass should run for.
+    list: async () => (dev ? [process.env.ACTIONRAIL_DEV_TENANT ?? "dev-tenant"] : []),
+    // WIRE 4: resolve the demo account, so the runner never passes or sends for it.
+    idForEmail: async (email) => (email === "demo@example.com" ? "demo-tenant" : null),
+  },
+  schedule: { pass: "10 5 * * *", dispatch: "*/5 * * * *" },
+  sources: [mailboxSource(openMailbox)],
+  actions: { reply: mailboxReplyAction(openMailbox) },
+  gates: [
+    (m) => (m.mailboxAddress && m.fromEmail === m.mailboxAddress ? stop("mail the team sent itself") : allow()),
+    (m) => (m.fromEmail ? allow() : stop("no sender address to reply to")),
+  ],
+  steps: {
+    classify: useModel ? { ...modelClassify, fallback: (m) => ruleClassify.run(m) as RuleLabel } : ruleClassify,
+    decide: decideByLabel<InboundMessage, RuleLabel, ReplyArtifact>({
+      labelOf: (c) => c.label,
+      handoff: ["complaint", "legal", "cancellation"] satisfies Label[],
+      ignore: ["automated", "spam"] satisfies Label[],
+    }),
+    draft: useModel ? modelDraft : templateDraft,
+    checkDraft: [(d) => (/\b(refund|discount|guarantee)\b/i.test(d.body) ? "the draft makes a commitment nobody made" : null)],
+  },
+  approval: {
+    defaultMode: "copilot",
+    alwaysHold: [(_m, c) => (c && c.label === "billing" ? "billing replies always wait for a person" : null)],
+    cleanApprovalsToUnlock: 10,
+    undoSeconds: 120,
+  },
+  caps: { inferencePerDay: 200, actionsPerDay: 120, perThread: 3, perPass: 60 },
+  state: {
+    initial: "open",
+    transition(s, e) {
+      switch (e.type) {
+        case "ignored":
+          return "closed";
+        case "handoff":
+        case "rejected":
+        case "undone":
+        case "blocked":
+        case "failed":
+          return "handoff";
+        case "held":
+          return "drafted";
+        case "queued":
+        case "approved":
+          return "queued";
+        case "sent":
+          return "answered";
+        default:
+          return s;
+      }
+    },
+  },
+  ledger: { events: "{{APP_SLUG_UNDERSCORE}}_events", artifacts: "{{APP_SLUG_UNDERSCORE}}_artifacts", runs: "{{APP_SLUG_UNDERSCORE}}_runs" },
+});

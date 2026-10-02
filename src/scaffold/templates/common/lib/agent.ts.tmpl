@@ -1,0 +1,25 @@
+// The runner this app uses, made once per server process.
+//
+// MemoryStore keeps everything in the process, which is right for `npm run dev` and wrong for
+// production: a restart forgets the queue. For production, use the SQL store, for example:
+//
+//   import { Pool } from "pg";
+//   import { SqlStore, pgQuery } from "actionrail";
+//   const store = new SqlStore({ dialect: "postgres", query: pgQuery(new Pool({ connectionString: process.env.DATABASE_URL })) })
+//     .scope(manifest.ledger);
+//   await store.migrate();
+
+import { MemoryStore, createRunner, providerFromEnv, type Runner, type Store } from "actionrail";
+import { manifest } from "./manifest";
+
+const g = globalThis as unknown as { __actionrail?: { store: Store; runner: Runner } };
+
+if (!g.__actionrail) {
+  const store = new MemoryStore();
+  // Your model, from ACTIONRAIL_PROVIDER, ACTIONRAIL_MODEL and ACTIONRAIL_API_KEY. Null runs rules only.
+  const runner = createRunner({ store, provider: providerFromEnv() });
+  g.__actionrail = { store, runner };
+}
+
+export const runner = g.__actionrail.runner;
+export { manifest };

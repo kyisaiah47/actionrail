@@ -1,0 +1,250 @@
+"use client";
+
+/* THE CONSOLE. One bar across the top with the mode and today's caps, then three columns: the
+ * status filters, the queue, and the ledger. Every row shows why it is where it is. */
+
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Mark from "./Mark";
+import { STATUS_NAME, clockText, drafts, secondsLeft, useQueue, type Artifact, type LedgerRow } from "@/lib/use-queue";
+
+const FILTERS = ["held", "queued", "sent", "failed", "blocked", "cancelled", "rejected", "all"] as const;
+type Filter = (typeof FILTERS)[number];
+
+function useTick(ms = 1000) {
+  const [, set] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => set((n) => n + 1), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+}
+
+export default function Console({ footer }: { footer?: ReactNode }) {
+  const q = useQueue();
+  const [filter, setFilter] = useState<Filter>("held");
+  const [editing, setEditing] = useState<string | null>(null);
+  useTick();
+  const now = q.serverNow();
+  const artifacts = useMemo(() => q.data?.artifacts ?? [], [q.data]);
+  const shown = filter === "all" ? artifacts : artifacts.filter((a) => a.status === filter);
+  const countOf = (f: Filter) => (f === "all" ? artifacts.length : artifacts.filter((a) => a.status === f).length);
+  const eventsFor = (a: Artifact) => (q.data?.events ?? []).filter((e) => e.itemId === a.itemId);
+  const s = q.data?.settings;
+
+  return (
+    <>
+      <header className="bar">
+        <span className="brand">
+          <Mark /> {{APP_NAME}}
+        </span>
+        {q.data ? (
+          <div className="bar-facts">
+            <span>
+              {q.data.sentToday} of {q.data.caps.actionsPerDay} actions sent today
+            </span>
+            <span>
+              {q.data.inferenceToday} of {q.data.caps.inferencePerDay} model calls today
+            </span>
+            <span>Undo window: {q.data.undoSeconds} seconds</span>
+          </div>
+        ) : null}
+        <div className="bar-right">
+          {s ? (
+            <div className="mode-switch" role="group" aria-label="Autonomy">
+              <button type="button" aria-pressed={s.mode === "copilot"} onClick={() => q.setMode("copilot")} disabled={!!q.busy}>
+                Copilot
+              </button>
+              <button
+                type="button"
+                aria-pressed={s.mode === "autopilot"}
+                onClick={() => q.setMode("autopilot")}
+                disabled={!!q.busy}
+                title={
+                  s.mode !== "autopilot" && s.cleanApprovals < (q.data?.unlocksAutopilotAt ?? 0)
+                    ? `Unlocks after ${q.data?.unlocksAutopilotAt} approvals without an edit. ${s.cleanApprovals} so far.`
+                    : undefined
+                }
+              >
+                Autopilot
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </header>
+      <div className="console">
+        <aside className="side" aria-label="Filters">
+          <h2>Queue</h2>
+          <div className="filters">
+            {FILTERS.map((f) => (
+              <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                <span>{f === "all" ? "Everything" : STATUS_NAME[f]}</span>
+                <span>{countOf(f)}</span>
+              </button>
+            ))}
+          </div>
+        </aside>
+        <main className="river">
+          <h1>{filter === "all" ? "Everything" : STATUS_NAME[filter]}</h1>
+          <p>Nothing is sent until a person approves it. After approval it waits {q.data?.undoSeconds ?? "the undo"} seconds, and Undo stops it.</p>
+          {q.error ? <p className="error-line" role="alert">{q.error}</p> : null}
+          {!q.data ? <p className="empty">Loading the queue.</p> : null}
+          {q.data && shown.length === 0 ? <p className="empty">Nothing here.</p> : null}
+          {shown.map((a) => (
+            <Row key={a.id} a={a} now={now} q={q} editing={editing === a.id} setEditing={setEditing} events={eventsFor(a)} />
+          ))}
+        </main>
+        <aside className="side-r" aria-label="Ledger">
+          {q.data?.dev ? (
+            <div className="dev-tools">
+              <p>Development only. The mailbox lives in memory.</p>
+              <button className="btn" type="button" onClick={() => q.dev("deliver")} disabled={!!q.busy}>
+                Deliver a sample message
+              </button>
+              <button className="btn" type="button" onClick={() => q.dev("pass")} disabled={!!q.busy}>
+                Run a pass
+              </button>
+              <button className="btn" type="button" onClick={() => q.dev("dispatch")} disabled={!!q.busy}>
+                Run the dispatcher
+              </button>
+            </div>
+          ) : null}
+          <div>
+            <h2>Ledger</h2>
+            <div className="ledger">
+              <ul>
+                {[...(q.data?.events ?? [])].reverse().map((e: LedgerRow) => (
+                  <li key={e.id}>
+                    <span className="label">{new Date(e.at).toLocaleTimeString()} · {e.kind}</span>
+                    <strong>{e.title}</strong>
+                    {e.detail ? <p>{e.detail}</p> : null}
+                    {e.evidence.length ? (
+                      <div className="chips">
+                        {e.evidence.map((ev, i) => (
+                          <span className="chip" key={i}>
+                            {ev.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </aside>
+      </div>
+      {footer}
+    </>
+  );
+}
+
+function Row({
+  a,
+  now,
+  q,
+  editing,
+  setEditing,
+  events,
+}: {
+  a: Artifact;
+  now: number;
+  q: ReturnType<typeof useQueue>;
+  editing: boolean;
+  setEditing: (id: string | null) => void;
+  events: LedgerRow[];
+}) {
+  const left = secondsLeft(a, now);
+  const saved = drafts.get(a.id);
+  const [subject, setSubject] = useState(saved?.subject ?? a.payload.subject ?? "");
+  const [body, setBody] = useState(saved?.body ?? a.payload.body ?? "");
+  const keep = (next: { subject: string; body: string }) => drafts.set(a.id, next);
+  const why = events.flatMap((e) => e.evidence).filter((e) => e.kind === "quote" || e.kind === "rule" || e.kind === "model");
+
+  return (
+    <article className="row">
+      <div className="row-head">
+        <span className="pill" data-status={a.status}>
+          <i /> {STATUS_NAME[a.status] ?? a.status}
+        </span>
+        <span className="label">
+          {a.kind} · {new Date(a.createdAt).toLocaleString()}
+        </span>
+      </div>
+      {editing ? (
+        <div className="editor">
+          <input
+            aria-label="Subject"
+            value={subject}
+            onChange={(e) => {
+              setSubject(e.target.value);
+              keep({ subject: e.target.value, body });
+            }}
+          />
+          <textarea
+            aria-label="Body"
+            value={body}
+            onChange={(e) => {
+              setBody(e.target.value);
+              keep({ subject, body: e.target.value });
+            }}
+          />
+        </div>
+      ) : (
+        <>
+          <h3>{a.payload.subject ?? a.kind}</h3>
+          <pre>{a.payload.body ?? JSON.stringify(a.payload, null, 2)}</pre>
+        </>
+      )}
+      {a.reason ? <p className="label">{a.reason}</p> : null}
+      {why.length ? (
+        <div className="chips" aria-label="Evidence">
+          {why.slice(0, 6).map((e, i) => (
+            <span className="chip" key={i}>
+              {e.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="row-actions">
+        {a.status === "held" && !editing ? (
+          <>
+            <button className="btn btn-primary" type="button" onClick={() => q.approve(a.id)} disabled={!!q.busy}>
+              Approve
+            </button>
+            <button className="btn" type="button" onClick={() => setEditing(a.id)} disabled={!!q.busy}>
+              Edit
+            </button>
+            <button className="btn btn-quiet" type="button" onClick={() => q.reject(a.id)} disabled={!!q.busy}>
+              Reject
+            </button>
+          </>
+        ) : null}
+        {a.status === "held" && editing ? (
+          <>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={async () => {
+                await q.approve(a.id, { subject, body });
+                setEditing(null);
+              }}
+              disabled={!!q.busy}
+            >
+              Approve with my edits
+            </button>
+            <button className="btn btn-quiet" type="button" onClick={() => setEditing(null)}>
+              Cancel
+            </button>
+          </>
+        ) : null}
+        {a.status === "queued" ? (
+          <>
+            <span className="countdown">{left > 0 ? `Can be sent in ${clockText(left)}` : "Waiting for the dispatcher"}</span>
+            <button className="btn" type="button" onClick={() => q.undo(a.id)} disabled={!!q.busy}>
+              Undo
+            </button>
+          </>
+        ) : null}
+      </div>
+    </article>
+  );
+}

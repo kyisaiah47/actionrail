@@ -1,0 +1,22 @@
+// What the queue views read: the tenant's artifacts, the ledger, the caps and the mode.
+import { manifest, runner } from "@/lib/agent";
+import { NotSignedIn, currentTenant } from "@/lib/tenant";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(req: Request) {
+  let tenantId: string;
+  try {
+    tenantId = await currentTenant(req);
+  } catch (err) {
+    if (err instanceof NotSignedIn) return Response.json({ error: err.message }, { status: 401 });
+    throw err;
+  }
+  const overview = await runner.overview(manifest, tenantId);
+  return Response.json({
+    app: manifest.app,
+    now: new Date().toISOString(),
+    dev: process.env.NODE_ENV !== "production",
+    ...overview,
+  });
+}

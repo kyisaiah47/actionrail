@@ -1,0 +1,14 @@
+import Console from "@/components/Console";
+import SimpleHome from "@/components/SimpleHome";
+import PageViews from "@/components/site-view/PageViews";
+import ViewControls from "@/components/site-view/ViewControls";
+
+export default function Page() {
+  const footer = (
+    <footer className="foot">
+      <span>{{APP_NAME}}</span>
+      <ViewControls />
+    </footer>
+  );
+  return <PageViews consoleView={<Console footer={footer} />} simpleView={<SimpleHome footer={footer} />} />;
+}

@@ -1,0 +1,114 @@
+"use client";
+
+// The one client for the queue. Console and Simple both read it, so a view switch never issues a
+// second workflow: the server is the authority, and an unsent edit lives in `drafts` below, which
+// survives a remount of either view.
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ArtifactRecord, EventRecord, Mode, Overview } from "actionrail";
+
+export interface QueueData extends Overview {
+  app: string;
+  now: string;
+  dev: boolean;
+}
+
+export interface ReplyPayload {
+  kind: string;
+  replyTo?: string;
+  subject?: string;
+  body?: string;
+}
+
+export type Artifact = ArtifactRecord<ReplyPayload>;
+export type LedgerRow = EventRecord;
+
+/** Unsent edits, keyed by artifact id. Kept in memory only, never in browser storage. */
+export const drafts = new Map<string, { subject: string; body: string }>();
+
+export function useQueue(pollMs = 4000) {
+  const [data, setData] = useState<QueueData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const skew = useRef(0);
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/queue", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? `the queue answered ${res.status}`);
+      skew.current = new Date(json.now).getTime() - Date.now();
+      setData(json as QueueData);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const t = setInterval(() => void refresh(), pollMs);
+    return () => clearInterval(t);
+  }, [refresh, pollMs]);
+
+  const post = useCallback(
+    async (path: string, body: unknown, label: string) => {
+      setBusy(label);
+      try {
+        const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error ?? `${label} answered ${res.status}`);
+        setError(null);
+        return json;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        return null;
+      } finally {
+        setBusy(null);
+        await refresh();
+      }
+    },
+    [refresh],
+  );
+
+  return {
+    data,
+    error,
+    busy,
+    refresh,
+    /** Server time now, corrected for this browser's clock. */
+    serverNow: () => Date.now() + skew.current,
+    approve: (id: string, edits?: { subject?: string; body?: string }) =>
+      post("/api/queue/approve", { id, edits }, "approve").then((r) => {
+        if (r) drafts.delete(id);
+        return r;
+      }),
+    undo: (id: string) => post("/api/queue/undo", { id }, "undo"),
+    reject: (id: string) => post("/api/queue/reject", { id }, "reject"),
+    setMode: (mode: Mode) => post("/api/queue/mode", { mode }, "mode"),
+    dev: (action: "deliver" | "pass" | "dispatch") => post("/api/dev", { action }, action),
+  };
+}
+
+/** Seconds left before a queued artifact can be sent. */
+export function secondsLeft(a: Artifact, now: number): number {
+  if (!a.releaseAt) return 0;
+  return Math.max(0, Math.ceil((new Date(a.releaseAt).getTime() - now) / 1000));
+}
+
+export function clockText(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+export const STATUS_NAME: Record<string, string> = {
+  held: "Waiting for you",
+  queued: "Approved, in the undo window",
+  sending: "Sending",
+  sent: "Sent",
+  failed: "Failed",
+  cancelled: "Undone",
+  rejected: "Rejected",
+  blocked: "Blocked",
+};

@@ -1,0 +1,157 @@
+"use client";
+
+/* START HERE. What the agent does, one labelled illustration of its output, and the choice of view.
+ * It opens by itself on `/` unless the visitor turned it off or `?welcome=0` is present. Closing or
+ * choosing a view never turns it off; the checkbox does. The footer's Start here reopens it. */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import Mark from "../Mark";
+import { WELCOME_EVENT, WELCOME_OFF_KEY, useSiteView, type SiteView } from "./SiteViewProvider";
+
+function readOff(): boolean {
+  try {
+    return localStorage.getItem(WELCOME_OFF_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export default function Welcome() {
+  const mode = useSiteView();
+  const path = usePathname();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previous = useRef<HTMLElement | null>(null);
+  const [off, setOff] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  const show = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    setOff(readOff());
+    const el = dialog.current;
+    if (!el) return;
+    setMounted(true);
+    if (!el.open) {
+      previous.current = document.activeElement as HTMLElement | null;
+      el.showModal();
+    }
+    requestAnimationFrame(() => {
+      setVisible(true);
+      if (!el.contains(document.activeElement) || document.activeElement === el) el.querySelector<HTMLElement>(".welcome-top > button")?.focus();
+    });
+  }, []);
+
+  const close = useCallback(() => {
+    setVisible(false);
+    if (timer.current) clearTimeout(timer.current);
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    timer.current = setTimeout(
+      () => {
+        dialog.current?.close();
+        setMounted(false);
+        const back = previous.current;
+        if (back && back.isConnected && back !== document.body) back.focus();
+      },
+      reduced ? 0 : 220,
+    );
+  }, []);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (path === "/" && !readOff() && q.get("welcome") !== "0") show();
+    window.addEventListener(WELCOME_EVENT, show);
+    return () => {
+      window.removeEventListener(WELCOME_EVENT, show);
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [path, show]);
+
+  function select(view: SiteView) {
+    mode?.choose(view);
+    close();
+  }
+
+  return (
+    <dialog
+      ref={dialog}
+      className="welcome"
+      data-visible={visible}
+      aria-labelledby="welcome-title"
+      onCancel={(e) => {
+        e.preventDefault();
+        close();
+      }}
+      onClick={(e) => {
+        if (e.target === dialog.current) close();
+      }}
+    >
+      {mounted ? (
+        <>
+          <header className="welcome-top">
+            <span className="brand">
+              <Mark /> {{APP_NAME}} <span className="label">/ START HERE</span>
+            </span>
+            <button type="button" aria-label="Close welcome" onClick={close}>
+              ×
+            </button>
+          </header>
+          <div className="welcome-intro">
+            <h2 id="welcome-title">What does this agent do with new mail?</h2>
+            <p>
+              It reads each new message, labels it and drafts a reply when it is allowed to. You approve each reply before it is
+              sent. After you approve, there is a short window in which Undo stops the send.
+            </p>
+          </div>
+          <section className="illustration" aria-label="Illustration of one message and its draft">
+            <div>
+              <span className="label">ONE MESSAGE. ONE DRAFT.</span>
+              <span className="label">ILLUSTRATION</span>
+            </div>
+            <p>A customer writes in.</p>
+            <pre>How do I export last month&apos;s report as a CSV file?</pre>
+            <p>The agent drafts a reply and waits for you.</p>
+            <pre className="answer">Hi Dana, open Reports, pick last month, and choose Export, then CSV. The file downloads right away.</pre>
+            <p>Both are made up for this illustration.</p>
+          </section>
+          <section className="welcome-choose">
+            <div>
+              <strong>How would you like to work?</strong>
+              <span className="label">You can switch anytime.</span>
+            </div>
+            <div className="choices">
+              <button type="button" onClick={() => select("console")}>
+                <strong>Console</strong>
+                <span>See more at once. The queue, the ledger and today&apos;s limits on one screen.</span>
+              </button>
+              <button type="button" onClick={() => select("simple")}>
+                <strong>Simple</strong>
+                <span>Start with the essentials. One draft at a time, with details you open as you go.</span>
+              </button>
+            </div>
+          </section>
+          <footer>
+            <label>
+              <input
+                type="checkbox"
+                checked={off}
+                onChange={(e) => {
+                  const value = e.target.checked;
+                  setOff(value);
+                  try {
+                    if (value) localStorage.setItem(WELCOME_OFF_KEY, "1");
+                    else localStorage.removeItem(WELCOME_OFF_KEY);
+                  } catch {
+                    /* storage blocked: the choice lasts this visit */
+                  }
+                }}
+              />
+              Don&apos;t open this when I come back
+            </label>
+          </footer>
+        </>
+      ) : null}
+    </dialog>
+  );
+}

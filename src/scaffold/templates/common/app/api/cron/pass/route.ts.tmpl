@@ -1,0 +1,16 @@
+// The pass. Your scheduler calls this with `Authorization: Bearer $CRON_SECRET`.
+// It refuses every caller while CRON_SECRET is unset.
+import { cronRoute } from "actionrail";
+import { manifest, runner } from "@/lib/agent";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
+  return cronRoute(req, async () => {
+    const passes = [];
+    for (const tenantId of await manifest.tenants.list()) passes.push(await runner.runPass(manifest, tenantId));
+    return passes;
+  });
+}
+
+export const GET = POST;

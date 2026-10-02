@@ -1,0 +1,44 @@
+// approve, undo, reject and mode. Each one is a conditional move in the runner, so a second click,
+// a racing undo or a racing dispatcher tick gets a clear refusal instead of a double send.
+import { RunnerError, type Mode } from "actionrail";
+import { manifest, runner } from "@/lib/agent";
+import { NotSignedIn, currentTenant } from "@/lib/tenant";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request, ctx: { params: Promise<{ action: string }> }) {
+  const { action } = await ctx.params;
+  let tenantId: string;
+  try {
+    tenantId = await currentTenant(req);
+  } catch (err) {
+    if (err instanceof NotSignedIn) return Response.json({ error: err.message }, { status: 401 });
+    throw err;
+  }
+  const body = (await req.json().catch(() => ({}))) as { id?: string; edits?: { subject?: string; body?: string }; mode?: Mode };
+  try {
+    switch (action) {
+      case "approve":
+        if (!body.id) return Response.json({ error: "id is required" }, { status: 400 });
+        return Response.json({ ok: true, ...(await runner.approve(manifest, tenantId, body.id, body.edits)) });
+      case "undo": {
+        if (!body.id) return Response.json({ error: "id is required" }, { status: 400 });
+        const ok = await runner.undo(manifest, tenantId, body.id);
+        return ok ? Response.json({ ok }) : Response.json({ error: "The undo window has closed. It was already claimed for sending." }, { status: 409 });
+      }
+      case "reject": {
+        if (!body.id) return Response.json({ error: "id is required" }, { status: 400 });
+        const ok = await runner.reject(manifest, tenantId, body.id);
+        return ok ? Response.json({ ok }) : Response.json({ error: "Only an artifact that is waiting for approval can be rejected." }, { status: 409 });
+      }
+      case "mode":
+        if (!body.mode) return Response.json({ error: "mode is required" }, { status: 400 });
+        return Response.json({ ok: true, settings: await runner.setMode(manifest, tenantId, body.mode) });
+      default:
+        return Response.json({ error: `unknown action ${action}` }, { status: 404 });
+    }
+  } catch (err) {
+    if (err instanceof RunnerError) return Response.json({ error: err.message, code: err.code }, { status: err.status });
+    throw err;
+  }
+}

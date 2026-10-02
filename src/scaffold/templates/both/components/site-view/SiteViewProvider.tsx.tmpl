@@ -1,0 +1,75 @@
+"use client";
+
+/* WHICH VIEW THIS VISITOR IS READING: Console or Simple.
+ *
+ * Console is the clean-visitor default. A valid `?view=simple|console` wins over the saved choice,
+ * and a valid explicit choice is saved. Only the preference goes to localStorage, and a blocked
+ * store never breaks the switch. */
+
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import Welcome from "./Welcome";
+
+export type SiteView = "console" | "simple";
+export const VIEW_KEY = "{{APP_SLUG}}:view";
+export const WELCOME_OFF_KEY = "{{APP_SLUG}}:welcome-off";
+export const WELCOME_EVENT = "{{APP_SLUG}}:welcome";
+
+interface ViewContext {
+  view: SiteView;
+  choose: (view: SiteView) => void;
+  welcome: () => void;
+}
+
+const Context = createContext<ViewContext | null>(null);
+
+export function useSiteView() {
+  return useContext(Context);
+}
+
+function readSaved(): SiteView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "simple" ? "simple" : "console";
+  } catch {
+    return "console";
+  }
+}
+
+export default function SiteViewProvider({ children }: { children: ReactNode }) {
+  const [view, setView] = useState<SiteView>("console");
+  const path = usePathname();
+
+  const choose = useCallback((next: SiteView) => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      /* a blocked store never breaks the switch */
+    }
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("view")) {
+      url.searchParams.set("view", next);
+      window.history.replaceState(window.history.state, "", url.href);
+    }
+  }, []);
+
+  useEffect(() => {
+    const explicit = new URLSearchParams(window.location.search).get("view");
+    // The URL and storage are unknown during the server render, so the view is read after mount.
+    if (explicit === "simple" || explicit === "console") choose(explicit);
+    else setView(readSaved());
+  }, [path, choose]);
+
+  useEffect(() => {
+    document.documentElement.dataset.view = view;
+  }, [view]);
+
+  const welcome = useCallback(() => window.dispatchEvent(new Event(WELCOME_EVENT)), []);
+
+  return (
+    <Context.Provider value={{ view, choose, welcome }}>
+      {children}
+      <Welcome />
+    </Context.Provider>
+  );
+}

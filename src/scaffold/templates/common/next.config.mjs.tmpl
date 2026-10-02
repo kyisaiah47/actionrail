@@ -1,0 +1,7 @@
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // actionrail runs on the server only: the cron routes, the queue routes and the runner.
+  serverExternalPackages: ["actionrail"],
+};
+
+export default nextConfig;

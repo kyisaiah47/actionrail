@@ -1,0 +1,11 @@
+// WHO IS ASKING. Every queue route resolves the tenant here.
+//
+// In development it returns one fixed tenant so the app runs with no sign-in. In production it
+// refuses until you return the signed-in account's tenant id from your own auth.
+
+export class NotSignedIn extends Error {}
+
+export async function currentTenant(_req: Request): Promise<string> {
+  if (process.env.NODE_ENV !== "production") return process.env.ACTIONRAIL_DEV_TENANT ?? "dev-tenant";
+  throw new NotSignedIn("Wire your sign-in in lib/tenant.ts: return the signed-in account's tenant id.");
+}
