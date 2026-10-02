@@ -74,7 +74,7 @@ async function main() {
   const approvedAt = new Date(t0.getTime() + 2 * 60 * 60 * 1000);
   for (const a of held) {
     const { releaseAt } = await runner.approve(manifest, TENANT, a.id, undefined, approvedAt);
-    console.log(`Approved ${a.id.slice(0, 8)}; it can be sent after ${releaseAt}`);
+    console.log(`Approved "${a.payload.subject}". It can be sent after ${releaseAt}.`);
   }
   const inside = await runner.runDispatch(manifest, new Date(approvedAt.getTime() + 60 * 1000));
   console.log("Dispatch 60s after approval sent:", inside.sent);
