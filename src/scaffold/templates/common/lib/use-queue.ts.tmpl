@@ -7,12 +7,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArtifactRecord, EventRecord, Mode, Overview } from "actionrail";
 
-export interface QueueData extends Overview {
-  app: string;
-  now: string;
-  dev: boolean;
-}
-
 export interface ReplyPayload {
   kind: string;
   replyTo?: string;
@@ -22,6 +16,13 @@ export interface ReplyPayload {
 
 export type Artifact = ArtifactRecord<ReplyPayload>;
 export type LedgerRow = EventRecord;
+
+export interface QueueData extends Omit<Overview, "artifacts"> {
+  artifacts: Artifact[];
+  app: string;
+  now: string;
+  dev: boolean;
+}
 
 /** Unsent edits, keyed by artifact id. Kept in memory only, never in browser storage. */
 export const drafts = new Map<string, { subject: string; body: string }>();

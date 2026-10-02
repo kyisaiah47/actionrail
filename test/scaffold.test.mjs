@@ -26,7 +26,7 @@ function parses(file, text) {
   return (out.diagnostics ?? []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
 }
 
-const SHARED = ["package.json", ".gitignore", ".env.example", "README.md", "app/globals.css", "app/layout.tsx", "app/page.tsx", "app/api/cron/pass/route.ts", "app/api/cron/dispatch/route.ts", "app/api/queue/route.ts", "app/api/queue/[action]/route.ts", "lib/agent.ts", "lib/manifest.ts", "lib/tenant.ts", "lib/use-queue.ts"];
+const SHARED = ["package.json", ".gitignore", ".env.example", "README.md", "app/globals.css", "app/icon.svg", "app/layout.tsx", "app/page.tsx", "app/api/cron/pass/route.ts", "app/api/cron/dispatch/route.ts", "app/api/queue/route.ts", "app/api/queue/[action]/route.ts", "lib/agent.ts", "lib/manifest.ts", "lib/tenant.ts", "lib/use-queue.ts"];
 
 const EXPECT = {
   console: { has: ["components/Console.tsx"], lacks: ["components/SimpleHome.tsx", "components/site-view/Welcome.tsx"] },

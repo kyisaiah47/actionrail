@@ -502,7 +502,10 @@ export function createRunner(opts: RunnerOptions): Runner {
                 kind: "classified",
                 title: r.fallback ? "Classified by the fallback" : "Classified",
                 detail: JSON.stringify(c).slice(0, 500),
-                evidence: [{ kind: r.via === "rule" ? "rule" : "model", label: r.via }, ...(r.note ? [{ kind: "rule" as const, label: r.note }] : [])],
+                evidence: [
+                  r.via === "rule" ? { kind: "rule" as const, label: "classified by a rule step" } : { kind: "model" as const, label: `classified by ${r.via}` },
+                  ...(r.note ? [{ kind: "rule" as const, label: r.note }] : []),
+                ],
               });
             } else {
               ev.push({
@@ -572,7 +575,10 @@ export function createRunner(opts: RunnerOptions): Runner {
               ...base,
               kind: "drafted",
               title: r.fallback ? "Drafted by the fallback" : "Drafted",
-              evidence: [{ kind: r.via === "template" ? "rule" : "model", label: r.via }, ...(r.note ? [{ kind: "rule" as const, label: r.note }] : [])],
+              evidence: [
+                r.via === "template" ? { kind: "rule" as const, label: "drafted from a template" } : { kind: "model" as const, label: `drafted by ${r.via}` },
+                ...(r.note ? [{ kind: "rule" as const, label: r.note }] : []),
+              ],
             });
             let refused: string | null = null;
             for (const check of m.steps.checkDraft ?? []) {

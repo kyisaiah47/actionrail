@@ -24,7 +24,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
       case "undo": {
         if (!body.id) return Response.json({ error: "id is required" }, { status: 400 });
         const ok = await runner.undo(manifest, tenantId, body.id);
-        return ok ? Response.json({ ok }) : Response.json({ error: "The undo window has closed. It was already claimed for sending." }, { status: 409 });
+        return ok ? Response.json({ ok }) : Response.json({ error: "Nothing was undone. The action is no longer queued: it was sent, cancelled, or claimed for sending." }, { status: 409 });
       }
       case "reject": {
         if (!body.id) return Response.json({ error: "id is required" }, { status: 400 });

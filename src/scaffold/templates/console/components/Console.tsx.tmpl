@@ -157,7 +157,10 @@ function Row({
   const [subject, setSubject] = useState(saved?.subject ?? a.payload.subject ?? "");
   const [body, setBody] = useState(saved?.body ?? a.payload.body ?? "");
   const keep = (next: { subject: string; body: string }) => drafts.set(a.id, next);
-  const why = events.flatMap((e) => e.evidence).filter((e) => e.kind === "quote" || e.kind === "rule" || e.kind === "model");
+  const held = new Set((a.reason ?? "").split("; "));
+  const why = events
+    .flatMap((e) => e.evidence)
+    .filter((e) => (e.kind === "quote" || e.kind === "rule" || e.kind === "model") && !held.has(e.label));
 
   return (
     <article className="row">
