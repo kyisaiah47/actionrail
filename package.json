@@ -1,7 +1,7 @@
 {
   "name": "actionrail",
   "version": "0.1.0",
-  "description": "An agent runner for apps that act on a customer's accounts: one scheduled pass per connected account, per-account caps, an approval step, an undo window and a receipt written before any send. Bring your own model.",
+  "description": "ActionRail is an agent runner for apps that act on a customer's accounts. It runs one scheduled pass per connected account, enforces per-account caps, requires approval, provides an undo window and writes a receipt before any send. You bring your own model.",
   "type": "module",
   "license": "MIT",
   "author": "Compound Labs (https://thecompound.tech)",
