@@ -173,7 +173,7 @@ In production, the starter refuses every account and every queue request until y
 `examples/triagedesk` expresses the TriageDesk agent as a manifest. TriageDesk reads a small team's shared inbox overnight and leaves a queue of drafted replies for the morning.
 
 - TriageDesk has eleven categories. Complaints, legal mail, and cancellations go to a person with no draft. TriageDesk records automated mail and spam and never answers them.
-- Quotes behind a label must appear in the message, or the system drops the message.
+- Quotes behind a label must appear in the message. The parser drops a quote that the message does not contain.
 - The system refuses a draft that promises a refund, a credit, a discount, a date, or a guarantee that the message and the saved answers do not contain.
 - ActionRail limits each thread to three replies, each day to 120 sends and 200 model calls, and sets a 120-second undo window.
 
@@ -182,7 +182,9 @@ npm run example
 GEMINI_API_KEY=your-key node examples/triagedesk/run.mjs --gemini
 ```
 
-The first command uses a scripted stub model and makes no network call. The second runs the same loop on Gemini.
+The first command uses a scripted stub model and makes no network call. The second runs the same loop on Gemini. Both write the pass summary, the queue, the sent mail and the ledger to `examples/triagedesk/out/`.
+
+A video tutorial on YouTube builds this example step by step: https://youtu.be/wDj944bmHm0. It installs ActionRail, reads the manifest, runs the example and reads its output. It then shows which parts to change to build a product like FetchDue, and it scaffolds an app with `--app console`.
 
 ## Tests
 
