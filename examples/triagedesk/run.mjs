@@ -6,7 +6,10 @@
 //
 // It delivers four synthetic messages, runs a pass, approves the one draft, shows that the
 // dispatcher sends nothing inside the undo window, then dispatches after it and prints the ledger.
+// It writes what the run produced to examples/triagedesk/out/: the pass summary, the queue, the
+// mail the dispatcher sent and the ledger with its evidence.
 
+import { mkdirSync, writeFileSync } from "node:fs";
 import { FakeMailbox, MemoryStore, createRunner, geminiProvider, stubProvider } from "actionrail";
 import { triageDeskManifest } from "./manifest.mjs";
 
@@ -83,7 +86,21 @@ async function main() {
   console.log("Mailbox sent:", mailbox.sent.map((s) => s.subject));
 
   console.log("\nLedger:");
-  for (const e of await store.listEvents("triagedesk", TENANT)) console.log(`  ${e.at.slice(11, 19)} ${e.kind.padEnd(14)} ${e.title}`);
+  const events = await store.listEvents("triagedesk", TENANT);
+  for (const e of events) console.log(`  ${e.at.slice(11, 19)} ${e.kind.padEnd(14)} ${e.title}`);
+
+  // Random ids are left out, so the files are the same on every run.
+  const out = new URL("./out/", import.meta.url);
+  mkdirSync(out, { recursive: true });
+  const write = (name, value) => writeFileSync(new URL(name, out), `${JSON.stringify(value, null, 2)}\n`);
+  write("pass.json", { recorded: pass.recorded, held: pass.held, handedOff: pass.handedOff, ignored: pass.ignored, stopped: pass.stopped, modelCalls: pass.inferenceCalls });
+  write("queue.json", (await store.listArtifacts("triagedesk", TENANT)).map((a) => ({
+    kind: a.kind, status: a.status, reason: a.reason, subject: a.payload.subject, body: a.payload.body,
+    approvedAt: a.approvedAt, releaseAt: a.releaseAt, sentAt: a.sentAt,
+  })));
+  write("sent.json", mailbox.sent.map((m) => ({ subject: m.subject, body: m.body ?? m.bodyText ?? null })));
+  write("ledger.json", events.map((e) => ({ at: e.at, kind: e.kind, title: e.title, detail: e.detail, evidence: e.evidence })));
+  console.log("\nWrote examples/triagedesk/out/: pass.json, queue.json, sent.json, ledger.json");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) await main();
